@@ -1,5 +1,3 @@
-"""Meeresströmungen: Pfeil-Vektoren, Küstenlogik und Pfeil-Zeichnung."""
-
 import math
 from typing import Dict, Optional, Tuple
 

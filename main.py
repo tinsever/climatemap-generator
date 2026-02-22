@@ -1,5 +1,3 @@
-"""Klimakarten-Generator – CLI-Einstiegspunkt."""
-
 import argparse
 from typing import Optional
 

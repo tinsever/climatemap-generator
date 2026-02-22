@@ -1,5 +1,3 @@
-"""Konfiguration, Konstanten und Farbdefinitionen für den Klimakarten-Generator."""
-
 TROPIC_LAT = 23.5
 SUBTROPIC_MAX_LAT = 40.0
 POLAR_CIRCLE_LAT = 66.5

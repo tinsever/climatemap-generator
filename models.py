@@ -1,5 +1,3 @@
-"""Dataclasses und Export-Konfiguration."""
-
 from dataclasses import dataclass
 
 

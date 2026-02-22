@@ -1,5 +1,3 @@
-"""Landklima – vereinfachte Köppen-Geiger-Klassifikation für Landpixel."""
-
 import io
 
 import numpy as np
