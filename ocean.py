@@ -80,16 +80,72 @@ def label_basins(ocean: np.ndarray) -> Tuple[np.ndarray, int]:
     return out, next_id - 1
 
 
-def windstress_curl_forcing(lat: float) -> float:
-    a = abs(lat)
+def itcz_offset(month: int) -> float:
+    """Saisonale ITCZ-Verschiebung in Breitengraden (positiv = nordwärts).
+
+    Januar: ~-5° (ITCZ südlich des Äquators)
+    Juli:   ~+5° (ITCZ nördlich, Monsun-Maximum)
+    """
+    import math
+    month_norm = (month - 1) % 12
+    return -5.0 * math.cos(2.0 * math.pi * month_norm / 12.0)
+
+
+def windstress_curl_forcing(lat: float, month: int = 4) -> float:
+    offset = itcz_offset(month)
+    lat_shifted = lat - offset
+
+    a = abs(lat_shifted)
     if a < 3.0 or a > 78.0:
         return 0.0
 
-    hemi = 1.0 if lat >= 0.0 else -1.0
+    hemi = 1.0 if lat_shifted >= 0.0 else -1.0
     subtropic = np.exp(-((a - 30.0) / 14.0) ** 2)
     subpolar = np.exp(-((a - 55.0) / 14.0) ** 2)
 
     return hemi * (1.25 * subtropic - 0.80 * subpolar)
+
+
+def find_gyre_boundaries_px(h: int, h_px: int, month: int = 4) -> list[float]:
+    profile = [
+        windstress_curl_forcing(lat_from_y(float(y), h_px), month=month)
+        for y in range(h)
+    ]
+    boundaries: list[float] = []
+    for y in range(1, h):
+        f0, f1 = profile[y - 1], profile[y]
+        if f0 * f1 < 0 and (abs(f0) + abs(f1)) > 0.05:
+            t = abs(f0) / (abs(f0) + abs(f1))
+            boundaries.append(float(y - 1) + t)
+    return boundaries
+
+
+def find_western_boundary_strips(
+    basin_mask: np.ndarray,
+    ocean_full: np.ndarray,
+    min_span_frac: float = 0.20,
+) -> np.ndarray:
+    h, w = basin_mask.shape
+    ys_occ = np.where(np.any(basin_mask, axis=1))[0]
+    if len(ys_occ) == 0:
+        return np.zeros_like(basin_mask, dtype=bool)
+
+    basin_h = int(ys_occ[-1] - ys_occ[0] + 1)
+    min_span = max(3, int(basin_h * min_span_frac))
+    strip_w = max(1, w // 50)
+
+    wb = np.zeros_like(basin_mask, dtype=bool)
+    for x in range(w):
+        x_prev = (x - 1) % w
+        boundary_pixels = basin_mask[:, x] & ~ocean_full[:, x_prev]
+        if not np.any(boundary_pixels):
+            continue
+        if np.sum(boundary_pixels) < min_span:
+            continue
+        for dx in range(strip_w):
+            wb[:, (x + dx) % w] |= basin_mask[:, (x + dx) % w]
+
+    return wb
 
 
 def build_streamfunction_currents(
@@ -98,7 +154,8 @@ def build_streamfunction_currents(
     h_px: int,
     coarsen: int = 6,
     beta_eff: float = 0.15,
-) -> Tuple[np.ndarray, np.ndarray]:
+    month: int = 4,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     from scipy.sparse import lil_matrix
     from scipy.sparse.linalg import spsolve
 
@@ -121,32 +178,19 @@ def build_streamfunction_currents(
     blocks_ocean = ocean_work.reshape(ch, coarsen, cw, coarsen)
     ocean_frac = blocks_ocean.mean(axis=(1, 3))
     ocean_c = ocean_frac > 0.65
-
-    blocks_labels = labels_work.reshape(ch, coarsen, cw, coarsen)
-    labels_c = np.zeros((ch, cw), dtype=np.int32)
-    ocean_flat = ocean_c.ravel()
-    labels_flat = labels_c.ravel()
-    blocks_flat = blocks_labels.reshape(ch * cw, coarsen * coarsen)
-    for i in range(ch * cw):
-        if ocean_flat[i]:
-            valid = blocks_flat[i][blocks_flat[i] > 0]
-            if len(valid) > 0:
-                labels_flat[i] = int(np.argmax(np.bincount(valid)))
-    valid_labs = list(basins.keys())
-    if valid_labs:
-        labels_c[~np.isin(labels_c, valid_labs)] = 0
+    sub_labels_c, n_sub = ndimage.label(ocean_c, structure=np.array([[0,1,0],[1,1,1],[0,1,0]]))
 
     forcing = np.zeros((ch, cw), dtype=np.float64)
     for cy in range(ch):
         lat = lat_from_y(cy * h / ch + h / (2 * ch), h_px)
-        forcing[cy, :] = windstress_curl_forcing(lat)
+        forcing[cy, :] = windstress_curl_forcing(lat, month=month)
 
     psi_c = np.zeros((ch, cw), dtype=np.float64)
 
     half_beta = beta_eff / 2.0
 
-    for lab in valid_labs:
-        mask_c = labels_c == lab
+    for lab in range(1, n_sub + 1):
+        mask_c = sub_labels_c == lab
         if not np.any(mask_c):
             continue
         pts = [(int(r), int(c)) for r, c in np.argwhere(mask_c)]
@@ -165,11 +209,12 @@ def build_streamfunction_currents(
             nbrs_laplacian = [
                 (y - 1, x),
                 (y + 1, x),
-                (y, (x - 1) % cw),
-                (y, (x + 1) % cw),
+                (y, x - 1),
+                (y, x + 1),
             ]
             nbrs_laplacian = [
-                (ny, nx) for ny, nx in nbrs_laplacian if 0 <= ny < ch
+                (ny, nx) for ny, nx in nbrs_laplacian
+                if 0 <= ny < ch and 0 <= nx < cw
             ]
 
             A[k, k] = float(-len(nbrs_laplacian))
@@ -181,8 +226,8 @@ def build_streamfunction_currents(
                     continue
 
                 if ny == y:
-                    is_east = nx == (x + 1) % cw
-                    is_west = nx == (x - 1) % cw
+                    is_east = nx == x + 1
+                    is_west = nx == x - 1
                     if is_east and not is_west:
                         A[k, j] += 1.0 + half_beta
                     elif is_west and not is_east:
@@ -205,20 +250,16 @@ def build_streamfunction_currents(
     psi_c = ndimage.gaussian_filter(psi_c, sigma=1.5)
     psi = ndimage.zoom(psi_c, (h / ch, w / cw), order=1)
 
-    dpsi_dy_base = np.gradient(psi, axis=0)
-    dpsi_dx_base = (
-        np.roll(psi, -1, axis=1) - np.roll(psi, 1, axis=1)
-    ) / 2.0
-    v_sst = -dpsi_dx_base
-    v_sst[~ocean_full] = 0.0
-
     y_arr = np.arange(h, dtype=np.float64)
-    sigma_y = 12.0 * (h - 1) / 180.0
-    y_42n = (90.0 - 42.0) * (h - 1) / 180.0
-    y_42s = (90.0 + 42.0) * (h - 1) / 180.0
+    sigma_y = max(6.0, h * 0.067)
+    gyre_ys = find_gyre_boundaries_px(h, h_px, month=month)
 
-    for lab in valid_labs:
-        basin_mask = labels == lab
+    sub_labels_full, n_sub_full = ndimage.label(
+        ocean_full, structure=np.array([[0,1,0],[1,1,1],[0,1,0]])
+    )
+
+    for sub_lab in range(1, n_sub_full + 1):
+        basin_mask = sub_labels_full == sub_lab
         ys_occ = np.where(np.any(basin_mask, axis=1))[0]
         if len(ys_occ) < 10:
             continue
@@ -227,27 +268,48 @@ def build_streamfunction_currents(
         if lat_top - lat_bot < 40.0:
             continue
 
-        basin_psi = psi[basin_mask]
-        psi_range = float(np.max(np.abs(basin_psi)))
-        if psi_range < 1e-12:
-            continue
+        xs_occ = np.where(np.any(basin_mask, axis=0))[0]
+        basin_lon_span = 360.0 * len(xs_occ) / max(1, w)
+        amoc_scale = 1.0
+        if basin_lon_span > 100.0:
+            amoc_scale = 0.08
+        elif lat_top < 30.0:
+            amoc_scale = 0.15
 
-        amoc_amp = 0.40 * psi_range
-        pert_1d = 0.5 * amoc_amp * (
-            np.tanh((y_arr - y_42n) / sigma_y)
-            + np.tanh((y_arr - y_42s) / sigma_y)
-        )
+        wb_mask = find_western_boundary_strips(basin_mask, ocean_full)
+
+        psi_range_basin = float(np.max(np.abs(psi[basin_mask])))
+        psi_range_wb = float(np.max(np.abs(psi[wb_mask]))) if np.any(wb_mask) else 0.0
+        psi_range = max(psi_range_basin, psi_range_wb)
+
+        forcing_peak = float(np.max(np.abs(forcing))) if forcing.size > 0 else 1.0
+        amoc_amp = max(0.40 * psi_range, 0.18 * forcing_peak) * amoc_scale
+
+        pert_1d = np.zeros(h, dtype=np.float64)
+        for yb in gyre_ys:
+            pert_1d += 0.5 * amoc_amp * np.tanh((y_arr - yb) / sigma_y)
+
+        sigma_broad = max(8.0, h * 0.028)
         basin_smooth = ndimage.gaussian_filter(
-            basin_mask.astype(np.float64), sigma=25.0
+            basin_mask.astype(np.float64), sigma=sigma_broad
         )
-        psi += pert_1d[:, np.newaxis] * basin_smooth
+        if np.any(wb_mask):
+            wb_boost = ndimage.gaussian_filter(
+                wb_mask.astype(np.float64), sigma=max(4.0, h * 0.014)
+            )
+            weight = basin_smooth * (1.0 + 2.5 * wb_boost)
+        else:
+            weight = basin_smooth
+        psi += pert_1d[:, np.newaxis] * weight
 
     dpsi_dy = np.gradient(psi, axis=0)
     dpsi_dx = (np.roll(psi, -1, axis=1) - np.roll(psi, 1, axis=1)) / 2.0
     u = dpsi_dy
     v = -dpsi_dx
+    v_sst = -dpsi_dx
     u[~ocean_full] = 0.0
     v[~ocean_full] = 0.0
+    v_sst[~ocean_full] = 0.0
 
     mag = np.sqrt(u * u + v * v)
     if np.any(ocean_full):
@@ -290,3 +352,8 @@ def compute_basin_stats(
 
 def lat_from_y(y_px: float, h_px: int) -> float:
     return 90.0 - 180.0 * (y_px / max(1, h_px - 1))
+
+
+def lon_from_x(x_px: float, w_px: int) -> float:
+    """Längengrad in [-180, 180] für äquidistantes Raster."""
+    return -180.0 + 360.0 * (x_px / max(1, w_px - 1))

@@ -2,7 +2,7 @@ import math
 from typing import Tuple
 from xml.etree import ElementTree as ET
 
-from constants import LAND_CLIMATE_COLORS, SST_STOPS, TROPIC_LAT, SUBTROPIC_MAX_LAT, POLAR_CIRCLE_LAT
+from constants import LAND_CLIMATE_COLORS, TREWARTHA_CLIMATE_COLORS, SST_STOPS, TROPIC_LAT, SUBTROPIC_MAX_LAT, POLAR_CIRCLE_LAT
 from models import ExportSpec, ViewBox
 from svg_utils import (
     _qname,
@@ -11,7 +11,6 @@ from svg_utils import (
 )
 
 
-# (abs_lat, label_N, label_S, dash, stroke, opacity)
 _CLIMATE_ZONE_LINES = [
     (0.0,  "Äquator",              None,                      "4,0",   "#ffffff", 0.55),
     (TROPIC_LAT,  "Wendekreis des Krebses",  "Wendekreis des Steinbocks", "6,5",   "#ffe070", 0.60),
@@ -47,6 +46,20 @@ _LAND_LEGEND_ITEMS: list[tuple[str, str]] = [
     ("boreal",        "Taiga"),
     ("tundra",        "Tundra"),
     ("ice",           "Polareis"),
+]
+
+_TREWARTHA_LEGEND_ITEMS: list[tuple[str, str]] = [
+    ("Ar", "Ar  Regenwald"),
+    ("Aw", "Aw  Savanne"),
+    ("BW", "BW  Wüste"),
+    ("BS", "BS  Steppe"),
+    ("Cf", "Cf  Subtr. humid"),
+    ("Cs", "Cs  Mediterran"),
+    ("Do", "Do  Gem. ozeanisch"),
+    ("Dc", "Dc  Gem. kontinental"),
+    ("E",  "E    Boreales Kl."),
+    ("FT", "FT  Tundra"),
+    ("Fi", "Fi   Polareis"),
 ]
 
 
@@ -167,10 +180,16 @@ def append_climate_zone_lines(root: ET.Element, vb: ViewBox) -> None:
                 ).text = label
 
 
-def append_title(root: ET.Element, map_vb: ViewBox, evb: ViewBox, title: str) -> None:
+def append_title(
+    root: ET.Element,
+    map_vb: ViewBox,
+    evb: ViewBox,
+    title: str,
+    subtitle: str | None = None,
+    month_label: str | None = None,
+) -> None:
     pad_h = map_vb.min_y - evb.min_y
     cx = evb.min_x + evb.width / 2.0
-    cy = evb.min_y + pad_h * 0.55
     fs = pad_h * 0.52
     g = ET.SubElement(root, _qname("g"), {"id": "WAZ_Titel"})
     ET.SubElement(
@@ -181,6 +200,7 @@ def append_title(root: ET.Element, map_vb: ViewBox, evb: ViewBox, title: str) ->
             "fill": "#000000", "fill-opacity": "0.45",
         },
     )
+    cy = evb.min_y + pad_h * 0.45 if subtitle else evb.min_y + pad_h * 0.55
     ET.SubElement(
         g, _qname("text"),
         {
@@ -190,6 +210,28 @@ def append_title(root: ET.Element, map_vb: ViewBox, evb: ViewBox, title: str) ->
             "text-anchor": "middle", "dominant-baseline": "middle",
         },
     ).text = title
+    if subtitle:
+        ET.SubElement(
+            g, _qname("text"),
+            {
+                "x": f"{cx:.3f}", "y": f"{evb.min_y + pad_h * 0.72:.3f}",
+                "font-family": "sans-serif", "font-size": f"{fs * 0.55:.3f}",
+                "fill": "#e8f4f8", "fill-opacity": "0.9",
+                "text-anchor": "middle", "dominant-baseline": "middle",
+            },
+        ).text = subtitle
+    if month_label:
+        pad_x = evb.width * 0.012
+        ET.SubElement(
+            g, _qname("text"),
+            {
+                "x": f"{evb.min_x + evb.width - pad_x:.3f}",
+                "y": f"{evb.min_y + pad_h * 0.55:.3f}",
+                "font-family": "sans-serif", "font-size": f"{fs * 0.90:.3f}",
+                "font-weight": "bold", "fill": "#ffe680", "fill-opacity": "0.97",
+                "text-anchor": "end", "dominant-baseline": "middle",
+            },
+        ).text = month_label
 
 
 def _append_sst_legend_block(
@@ -348,6 +390,56 @@ def _append_currents_legend_block(
     ).text = "Meeresströmung"
 
 
+def _append_trewartha_legend_block(
+    root: ET.Element, evb: ViewBox, y: float, block_h: float
+) -> None:
+    """Legende für die Trewartha-Klassifikation (11 Zonen, 2 Reihen à ~6/5 Zonen)."""
+    n = len(_TREWARTHA_LEGEND_ITEMS)
+    n_row1 = math.ceil(n / 2)
+    heading_fs = block_h * 0.14
+    swatch     = block_h * 0.16
+    label_fs   = max(block_h * 0.105, 7.5)
+    row_h      = swatch + label_fs * 1.3
+    col_w      = evb.width * 0.90 / n_row1
+    x0         = evb.min_x + evb.width * 0.05
+
+    g = ET.SubElement(root, _qname("g"), {"id": "WAZ_Legende_Trewartha"})
+    ET.SubElement(
+        g, _qname("text"),
+        {
+            "x": f"{evb.min_x + evb.width / 2:.3f}", "y": f"{y + heading_fs:.3f}",
+            "font-family": _LEGEND_FONT, "font-size": f"{heading_fs:.3f}",
+            "font-weight": "normal", "fill": _LEGEND_FILL,
+            "text-anchor": "middle",
+        },
+    ).text = "Klimazonen nach Trewartha"
+
+    items_top = y + heading_fs * 1.8
+    for i, (key, label) in enumerate(_TREWARTHA_LEGEND_ITEMS):
+        row = i // n_row1
+        col = i % n_row1
+        bx = x0 + col * col_w + (col_w - swatch) / 2.0
+        by = items_top + row * row_h
+        rc, gc, bc = TREWARTHA_CLIMATE_COLORS[key]
+        ET.SubElement(
+            g, _qname("rect"),
+            {
+                "x": f"{bx:.3f}", "y": f"{by:.3f}",
+                "width": f"{swatch:.3f}", "height": f"{swatch:.3f}",
+                "fill": rgb_to_hex(rc, gc, bc), "rx": f"{swatch * 0.12:.3f}",
+                "fill-opacity": "0.95", "stroke": "#e0e0e0", "stroke-width": "0.5",
+            },
+        )
+        ET.SubElement(
+            g, _qname("text"),
+            {
+                "x": f"{bx + swatch / 2:.3f}", "y": f"{by + swatch + label_fs * 1.0:.3f}",
+                "font-family": _LEGEND_FONT, "font-size": f"{label_fs:.3f}",
+                "fill": _LEGEND_FILL, "font-weight": "normal", "text-anchor": "middle",
+            },
+        ).text = label
+
+
 def append_legend(
     root: ET.Element, map_vb: ViewBox, evb: ViewBox, spec: ExportSpec
 ) -> None:
@@ -367,7 +459,7 @@ def append_legend(
         },
     )
 
-    n_active = sum([spec.currents, spec.sst, spec.land])
+    n_active = sum([spec.currents, spec.sst, spec.land, spec.trewartha])
     if n_active == 0:
         return
     block_h = (legend_h - 2.0 * margin_v) / n_active
@@ -381,3 +473,6 @@ def append_legend(
         y += block_h
     if spec.land:
         _append_land_legend_block(root, evb, y, block_h)
+        y += block_h
+    if spec.trewartha:
+        _append_trewartha_legend_block(root, evb, y, block_h)

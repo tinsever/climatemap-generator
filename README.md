@@ -30,6 +30,14 @@ Beispiel: `python main.py karte.svg out/karte` erzeugt u.a. `out/karte_weltklima
 | `--legend-w` | Breite der Legenden-PNG bei --split |
 | `--sst-debug` | A/B/C für SST-Diagnose |
 
+## Jahresanimation
+
+```bash
+python animate_year.py karte.svg out/anim --exports atlas,ozean --fps 4
+```
+
+Erzeugt 12 Monate als MP4 (benötigt ffmpeg).
+
 ## Export-Varianten
 
 - **stroem** – Ozeanströmungen (Pfeile)

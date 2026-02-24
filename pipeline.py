@@ -23,7 +23,7 @@ from currents import (
     split_at_dateline,
 )
 from sst import build_sst_image
-from land_climate import build_land_climate_image
+from land_climate import build_land_climate_image, build_trewartha_climate_image
 from svg_utils import (
     get_viewbox,
     recolor_ocean_background,
@@ -47,6 +47,7 @@ def build_all_layers(
     spacing_px: int = 24,
     min_dist_px: float = 0.8,
     sst_debug: Optional[str] = None,
+    month: int = 4,
 ) -> dict:
     tree = ET.parse(svg_path)
     root = tree.getroot()
@@ -66,7 +67,7 @@ def build_all_layers(
 
     print("  Berechne Stromfunktion …")
     stream_u, stream_v, stream_v_sst = build_streamfunction_currents(
-        labels=labels, basins=basins, h_px=raster_h, coarsen=4,
+        labels=labels, basins=basins, h_px=raster_h, coarsen=4, month=month,
     )
 
     print("  Berechne Strömungspfeile …")
@@ -105,6 +106,7 @@ def build_all_layers(
         stream_v=stream_v,
         h_px=raster_h,
         min_dist_px=min_dist_px,
+        month=month,
     )
 
     sx = vb.width / float(raster_w)
@@ -136,15 +138,20 @@ def build_all_layers(
 
     print("  Berechne Meeresoberflächentemperatur …")
     sst_png = build_sst_image(
-        ocean, raster_h, stream_v=stream_v_sst, debug_mode=sst_debug
+        ocean, raster_h, stream_v=stream_v_sst, stream_u=stream_u,
+        debug_mode=sst_debug, month=month
     )
     sst_b64 = base64.b64encode(sst_png).decode("ascii")
 
-    print("  Berechne Klimazonen …")
-    land_png = build_land_climate_image(ocean, raster_h)
+    print("  Berechne Klimazonen (Köppen) …")
+    land_png = build_land_climate_image(ocean, raster_h, month=month)
     land_b64 = base64.b64encode(land_png).decode("ascii")
 
-    return {
+    print("  Berechne Klimazonen (Trewartha) …")
+    trewartha_png = build_trewartha_climate_image(ocean, raster_h, month=month)
+    trewartha_b64 = base64.b64encode(trewartha_png).decode("ascii")
+
+    result: dict = {
         "base_root": copy.deepcopy(root),
         "vb": vb,
         "ocean": ocean,
@@ -156,7 +163,29 @@ def build_all_layers(
         "lines_svg": lines_svg,
         "sst_b64": sst_b64,
         "land_b64": land_b64,
+        "trewartha_b64": trewartha_b64,
     }
+
+    return result
+
+
+def build_all_layers_for_month(
+    svg_path: str,
+    month: int,
+    raster_w: int = 1800,
+    spacing_px: int = 24,
+    min_dist_px: float = 0.8,
+    sst_debug: Optional[str] = None,
+) -> dict:
+    """Wie build_all_layers, aber mit monatsspezifischer SST und Land-Klima."""
+    return build_all_layers(
+        svg_path,
+        raster_w=raster_w,
+        spacing_px=spacing_px,
+        min_dist_px=min_dist_px,
+        sst_debug=sst_debug,
+        month=month,
+    )
 
 
 def write_export(
@@ -166,6 +195,7 @@ def write_export(
     with_title: bool = True,
     with_legend: bool = True,
     currents_style: str = "arrows",
+    month_label: str | None = None,
 ) -> None:
     root = copy.deepcopy(data["base_root"])
     map_vb: ViewBox = data["vb"]
@@ -191,6 +221,8 @@ def write_export(
         idx = _insert_raster_layer(root, "WAZ_SST", map_vb, data["sst_b64"], idx)
     if spec.land:
         idx = _insert_raster_layer(root, "WAZ_Landklima", map_vb, data["land_b64"], idx)
+    if spec.trewartha:
+        idx = _insert_raster_layer(root, "WAZ_Trewartha", map_vb, data["trewartha_b64"], idx)
 
     append_climate_zone_lines(root, map_vb)
 
@@ -205,7 +237,7 @@ def write_export(
             )
 
     if with_title:
-        append_title(root, map_vb, evb, spec.title)
+        append_title(root, map_vb, evb, spec.title, subtitle=None, month_label=month_label)
     if with_legend:
         append_legend(root, map_vb, evb, spec)
 
@@ -223,7 +255,7 @@ def write_legend_png(
     total_w = content_w + 2 * pad_x
     total_h = content_h + 2 * pad_y
 
-    if sum([spec.currents, spec.sst, spec.land]) == 0:
+    if sum([spec.currents, spec.sst, spec.land, spec.trewartha]) == 0:
         return
 
     map_vb_legend = ViewBox(0, -1, total_w, 1 + pad_y)
@@ -262,6 +294,7 @@ def generate_exports(
     split_legend: bool = False,
     legend_png_width: int = 1200,
     sst_debug: Optional[str] = None,
+    month: int = 4,
 ) -> None:
     from models import ALL_EXPORTS
 
@@ -275,6 +308,7 @@ def generate_exports(
         spacing_px=spacing_px,
         min_dist_px=min_dist_px,
         sst_debug=sst_debug,
+        month=month,
     )
 
     for spec in ALL_EXPORTS:

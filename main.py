@@ -63,6 +63,15 @@ def main() -> None:
             "Zum Finden von Kältefleck-Ursachen."
         ),
     )
+    parser.add_argument(
+        "--month", type=int, default=4, metavar="N",
+        help=(
+            "Monat für SST und Landklima (1–12). Standard: 4 (April – nahe am "
+            "Jahresmittel der SST, da der Ozean dem solaren Antrieb um ~1–2 Monate "
+            "nacheilt; das Äquinoktium selbst liegt im März). "
+            "1 = Januar (Nordhemisphäre-Winter), 7 = Juli (Nordhemisphäre-Sommer)."
+        ),
+    )
     args = parser.parse_args()
 
     if args.exports:
@@ -87,6 +96,7 @@ def main() -> None:
         split_legend=args.split,
         legend_png_width=args.legend_w,
         sst_debug=args.sst_debug,
+        month=args.month,
     )
 
 

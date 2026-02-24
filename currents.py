@@ -13,7 +13,7 @@ from constants import (
     POLAR_CIRCLE_LAT,
 )
 from models import BasinStats
-from ocean import lat_from_y
+from ocean import lat_from_y, windstress_curl_forcing
 
 
 def climate_zone(lat: float) -> str:
@@ -264,6 +264,66 @@ def build_streamlines(
     return lines
 
 
+def _subtropical_lat_bands(month: int = 4) -> list[tuple[float, float]]:
+    """Subtropische Breitengradstreifen aus dem Windantriebsprofil.
+
+    Gibt [(lat_min_N, lat_max_N), (lat_min_S, lat_max_S)] zurück.
+    Vollständig aus windstress_curl_forcing abgeleitet – keine Festwerte.
+    """
+    lats = np.linspace(-85.0, 85.0, 500)
+    curl = np.array([windstress_curl_forcing(float(lat), month=month) for lat in lats])
+    th = 0.15
+    bands: list[tuple[float, float]] = []
+    nh = np.where((lats > 3.0) & (curl > th))[0]
+    if len(nh) > 0:
+        bands.append((float(lats[nh[0]]) - 4.0, float(lats[nh[-1]]) + 4.0))
+    sh = np.where((lats < -3.0) & (curl < -th))[0]
+    if len(sh) > 0:
+        bands.append((float(lats[sh[0]]) - 4.0, float(lats[sh[-1]]) + 4.0))
+    if not bands:
+        bands = [(10.0, 50.0), (-50.0, -10.0)]
+    return bands
+
+
+def _local_western_boundary_strip(
+    basin_mask: np.ndarray,
+    ocean: np.ndarray,
+    lat_ok_col: np.ndarray,
+    w: int,
+    strip_width_frac: float = 0.10,
+) -> np.ndarray:
+    """Findet Westrand-Streifen zeilenweise – topologisch, ohne x_min-Festwerte.
+
+    Für jede Zeile im Zielbreitengrad-Band werden zusammenhängende Ozean-
+    Segmente gesucht. Der linke Rand jedes Segments wird als Westrand markiert,
+    sofern die Zelle links davon **Land** ist (kein Ozean). Durch Nutzung von
+    `ocean` statt `basin_mask` werden Datumslinie-Artefakte vermieden.
+    """
+    h = basin_mask.shape[0]
+    strip_w = max(4, int(w * strip_width_frac))
+    wb = np.zeros_like(basin_mask, dtype=bool)
+    for y in range(h):
+        if not lat_ok_col[y]:
+            continue
+        row = basin_mask[y, :]
+        if not np.any(row):
+            continue
+        x = 0
+        while x < w:
+            if not row[x]:
+                x += 1
+                continue
+            seg_start = x
+            x_prev = (seg_start - 1) % w
+            is_west_boundary = not ocean[y, x_prev]
+            while x < w and row[x]:
+                x += 1
+            if is_west_boundary:
+                n_mark = min(strip_w, x - seg_start)
+                wb[y, seg_start : seg_start + n_mark] = True
+    return wb
+
+
 def build_major_driftlines(
     ocean: np.ndarray,
     labels: np.ndarray,
@@ -273,6 +333,7 @@ def build_major_driftlines(
     stream_v: np.ndarray,
     h_px: int,
     min_dist_px: float = 1.2,
+    month: int = 4,
 ) -> list[list[tuple[float, float]]]:
     h, w = ocean.shape
 
@@ -298,16 +359,15 @@ def build_major_driftlines(
         if not np.any(basin_mask):
             continue
 
-        x_west = basin.x_min
-        x_strip = max(6, int((basin.x_max - basin.x_min) * 0.12))
-        west_strip = np.zeros_like(basin_mask, dtype=bool)
-        west_strip[:, x_west : min(w, x_west + x_strip)] = True
-
-        for lat_min, lat_max in [(18.0, 48.0), (-48.0, -18.0)]:
+        for lat_min, lat_max in _subtropical_lat_bands(month=month):
             lat_ok = np.zeros((h, 1), dtype=bool)
             for y in range(h):
                 lat = lat_from_y(float(y), h_px)
                 lat_ok[y, 0] = lat_min <= lat <= lat_max
+
+            west_strip = _local_western_boundary_strip(
+                basin_mask, ocean, lat_ok[:, 0], w
+            )
 
             mask = (
                 basin_mask
@@ -450,24 +510,15 @@ def vector_at_point(
     v = float(stream_v[yi, xi])
 
     stream_mag = math.sqrt(u * u + v * v)
-    fallback_weight = 0.6 if stream_mag < 0.03 else 0.15
 
     a_lat = abs(lat)
-    subtropic_band = math.exp(-((a_lat - 30.0) / 10.0) ** 2)
-    fallback_weight *= 1.0 - 0.7 * subtropic_band
-
-    if a_lat < 25.0:
-        trade_wind = -0.8 * math.exp(-((a_lat - 10.0) / 8.0) ** 2)
-        u += fallback_weight * trade_wind
-
-    u += fallback_weight * 0.45 * equatorial_countercurrent_u(lat)
-    u += fallback_weight * 0.30 * circumpolar_boost_u(lat)
-
-    trop_w = math.exp(-((abs(lat) - 12.0) / 10.0) ** 2)
-    acc_w = 1.0 if (-65.0 <= lat <= -45.0) else 0.0
-    u += fallback_weight * (
-        trop_w * zonal_current_u(lat) + acc_w * zonal_current_u(lat)
-    )
+    if stream_mag < 0.02:
+        fb = 0.25
+        if a_lat < 25.0:
+            trade_wind = -0.8 * math.exp(-((a_lat - 10.0) / 8.0) ** 2)
+            u += fb * trade_wind
+        u += fb * 0.45 * equatorial_countercurrent_u(lat)
+        u += fb * 0.30 * circumpolar_boost_u(lat)
 
     d = float(dist[yi, xi])
     gx = float(grad_x[yi, xi])

@@ -27,13 +27,17 @@ class ExportSpec:
     sst: bool
     land: bool
     currents: bool
+    trewartha: bool = False
 
 
 ALL_EXPORTS: list[ExportSpec] = [
-    ExportSpec("stroem", "ozeanstroemungen", "Ozeanströmungen",             False, False, True),
-    ExportSpec("sst",    "meerestemperatur", "Meeresoberflächentemperatur", True,  False, False),
-    ExportSpec("klima",  "klimazonen",       "Klimazonen an Land",          False, True,  False),
-    ExportSpec("ozean",  "ozeankarte",       "Ozeankarte",                  True,  False, True),
-    ExportSpec("atlas",  "klimaatlas",       "Klimaatlas",                  True,  True,  False),
-    ExportSpec("alles",  "weltklimakarte",   "Weltklimakarte",              True,  True,  True),
+    ExportSpec("stroem",          "ozeanstroemungen",     "Ozeanströmungen",                           False, False, True),
+    ExportSpec("sst",             "meerestemperatur",     "Meeresoberflächentemperatur",                True,  False, False),
+    ExportSpec("klima",           "klimazonen",           "Klimazonen an Land",                         False, True,  False),
+    ExportSpec("ozean",           "ozeankarte",           "Ozeankarte",                                 True,  False, True),
+    ExportSpec("atlas",           "klimaatlas",           "Klimaatlas",                                 True,  True,  False),
+    ExportSpec("alles",           "weltklimakarte",       "Weltklimakarte",                             True,  True,  True),
+    ExportSpec("trewartha",       "trewartha_klimazonen", "Klimazonen nach Trewartha",                  False, False, False, trewartha=True),
+    ExportSpec("trewartha_atlas", "trewartha_klimaatlas", "Trewartha-Klimaatlas",                       True,  False, False, trewartha=True),
+    ExportSpec("trewartha_alles", "trewartha_weltkarte",  "Weltkarte der Klimata nach Trewartha",       True,  False, True,  trewartha=True),
 ]
