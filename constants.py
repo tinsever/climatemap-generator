@@ -1,46 +1,20 @@
 TROPIC_LAT = 23.5
 SUBTROPIC_MAX_LAT = 40.0
 POLAR_CIRCLE_LAT = 66.5
-
+ITCZ_CORE_LAT = TROPIC_LAT * 0.35
+MONSOON_CORE_LAT = TROPIC_LAT * 0.78
+EAST_ONSHORE_CORE_LAT = TROPIC_LAT + (SUBTROPIC_MAX_LAT - TROPIC_LAT) * 0.25
+SUBTROPICAL_DRY_CORE_LAT = TROPIC_LAT + (SUBTROPIC_MAX_LAT - TROPIC_LAT) * 0.35
+FRONTAL_CORE_LAT = SUBTROPIC_MAX_LAT + 2.0
+WESTERLY_CORE_LAT = SUBTROPIC_MAX_LAT + 7.0
+STORM_TRACK_CORE_LAT = SUBTROPIC_MAX_LAT + 12.0
+SUBPOLAR_LOW_CORE_LAT = POLAR_CIRCLE_LAT - 6.5
+POLAR_EASTERLY_CORE_LAT = POLAR_CIRCLE_LAT + 5.5
+POLAR_HIGH_CORE_LAT = POLAR_CIRCLE_LAT + 18.5
 COAST_REPEL_GAIN = 0.05
 COAST_REPEL_SCALE = 9.0
 COAST_STEER_DIST = 10.0
-
-OCEAN_GRAY = "#676d74"
-
-SST_STOPS: list = [
-    ( 0.0, (210,  55,  20)),
-    (15.0, (220, 130,  25)),
-    (30.0, (200, 200,  40)),
-    (45.0, ( 60, 180, 140)),
-    (60.0, ( 50, 130, 210)),
-    (90.0, ( 25,  60, 160)),
-]
-
-LAND_CLIMATE_COLORS: dict = {
-    "tropical_wet":  (  5, 130,  45),
-    "tropical_dry":  ( 90, 195,  60),
-    "desert_hot":    (240, 200,  80),
-    "steppe":        (215, 155,  50),
-    "mediterranean": (255, 115,  30),
-    "humid_sub":     (190, 230,  80),
-    "oceanic":       ( 80, 185, 105),
-    "continental":   (140,  80, 175),
-    "boreal":        (175, 135, 210),
-    "tundra":        (175, 195, 195),
-    "ice":           (220, 235, 255),
-}
-
-TREWARTHA_CLIMATE_COLORS: dict = {
-    "Ar": (140,  26,  20),
-    "Aw": (218,  68,  18),
-    "BW": (232, 210,  58),
-    "BS": (218, 155,  38),
-    "Cf": ( 92, 122,  30),
-    "Cs": (142, 162,  42),
-    "Do": (118, 198, 118),
-    "Dc": (132, 178, 222),
-    "E":  ( 78, 118, 196),
-    "FT": (174, 180, 180),
-    "Fi": (200, 232, 242),
-}
+OCEAN_GRAY = '#676d74'
+SST_STOPS: list = [(0.0, (210, 55, 20)), (15.0, (220, 130, 25)), (30.0, (200, 200, 40)), (45.0, (60, 180, 140)), (60.0, (50, 130, 210)), (90.0, (25, 60, 160))]
+LAND_CLIMATE_COLORS: dict = {'eiswueste': (176, 254, 254), 'tundra': (254, 212, 248), 'nadelwald': (0, 180, 180), 'mischwald': (0, 241, 0), 'gem_regenwald': (2, 109, 193), 'westseite': (255, 228, 159), 'steppe': (255, 255, 0), 'winterkalt_trocken': (227, 220, 132), 'heiss_trocken': (255, 174, 0), 'dornsavanne': (227, 99, 86), 'ostseite': (7, 181, 255), 'trockensavanne': (194, 151, 36), 'feuchtsavanne': (76, 172, 0), 'trop_regenwald': (45, 95, 2)}
+TREWARTHA_CLIMATE_COLORS: dict = {'Ar': (140, 26, 20), 'Aw': (218, 68, 18), 'BW': (232, 210, 58), 'BS': (218, 155, 38), 'Cf': (92, 122, 30), 'Cs': (142, 162, 42), 'Do': (118, 198, 118), 'Dc': (132, 178, 222), 'E': (78, 118, 196), 'FT': (174, 180, 180), 'Fi': (200, 232, 242)}
